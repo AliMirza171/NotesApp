@@ -28,12 +28,13 @@ import androidx.navigation.compose.*
 import androidx.room.*
 kotlinx.coroutines.launch
 
+// Room Database Entity for Notes with color support
 @Entity
 data class Note(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val title: String,
     val content: String,
-    val color: Int
+    val color: Int // Feature: Support for colorful notes
 )
 
 @Dao
@@ -53,6 +54,7 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
 }
 
+// Application class to initialize the Room database
 class NotesApplication : Application() {
     val database by lazy { Room.databaseBuilder(this, NoteDatabase::class.java, "notes.db").build() }
 }
@@ -113,7 +115,7 @@ fun NoteItem(note: Note, onDelete: (Note) -> Unit) {
             .background(Color(note.color), RoundedCornerShape(8.dp))
             .pointerInput(Unit) {
                 detectHorizontalDragGestures { _, dragAmount ->
-                    if (dragAmount < -100) {
+                    if (dragAmount < -100) { // Feature: Swipe to delete functionality
                         isSwiped = true
                         onDelete(note)
                     }
@@ -133,7 +135,7 @@ fun NoteItem(note: Note, onDelete: (Note) -> Unit) {
 fun AddNoteScreen(viewModel: NoteViewModel, navController: NavHostController) {
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
-    var color by remember { mutableStateOf(0xFFFFA500.toInt()) }
+    var color by remember { mutableStateOf(0xFFFFA500.toInt()) } // Feature: Assigning color to notes
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         TextField(value = title, onValueChange = { title = it }, label = { Text("Title") })
