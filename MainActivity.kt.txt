@@ -1,0 +1,171 @@
+package com.example.notesapp
+
+import android.app.Application
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.*
+import androidx.room.*
+kotlinx.coroutines.launch
+
+@Entity
+data class Note(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val content: String,
+    val color: Int
+)
+
+@Dao
+interface NoteDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(note: Note)
+
+    @Delete
+    suspend fun delete(note: Note)
+
+    @Query("SELECT * FROM Note ORDER BY id DESC")
+    fun getAllNotes(): kotlinx.coroutines.flow.Flow<List<Note>>
+}
+
+@Database(entities = [Note::class], version = 1)
+abstract class NoteDatabase : RoomDatabase() {
+    abstract fun noteDao(): NoteDao
+}
+
+class NotesApplication : Application() {
+    val database by lazy { Room.databaseBuilder(this, NoteDatabase::class.java, "notes.db").build() }
+}
+
+class NoteRepository(private val noteDao: NoteDao) {
+    val allNotes = noteDao.getAllNotes()
+
+    suspend fun insert(note: Note) = noteDao.insert(note)
+    suspend fun delete(note: Note) = noteDao.delete(note)
+}
+
+class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
+    val allNotes = repository.allNotes
+    
+    fun addNote(note: Note) {
+        viewModelScope.launch { repository.insert(note) }
+    }
+
+    fun removeNote(note: Note) {
+        viewModelScope.launch { repository.delete(note) }
+    }
+}
+
+class NoteViewModelFactory(private val repository: NoteRepository) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(NoteViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return NoteViewModel(repository) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}
+
+@Composable
+fun NotesScreen(viewModel: NoteViewModel, navController: NavHostController) {
+    val notes by viewModel.allNotes.collectAsState(initial = emptyList())
+    
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Button(onClick = { navController.navigate("addNote") }) {
+            Text("Add Note")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        LazyColumn {
+            items(notes) { note ->
+                NoteItem(note = note, onDelete = { viewModel.removeNote(it) })
+            }
+        }
+    }
+}
+
+@Composable
+fun NoteItem(note: Note, onDelete: (Note) -> Unit) {
+    var isSwiped by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .padding(8.dp)
+            .background(Color(note.color), RoundedCornerShape(8.dp))
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { _, dragAmount ->
+                    if (dragAmount < -100) {
+                        isSwiped = true
+                        onDelete(note)
+                    }
+                }
+            }
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column {
+            Text(text = note.title, style = MaterialTheme.typography.h6)
+            Text(text = note.content, style = MaterialTheme.typography.body2)
+        }
+    }
+}
+
+@Composable
+fun AddNoteScreen(viewModel: NoteViewModel, navController: NavHostController) {
+    var title by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
+    var color by remember { mutableStateOf(0xFFFFA500.toInt()) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        TextField(value = title, onValueChange = { title = it }, label = { Text("Title") })
+        Spacer(modifier = Modifier.height(8.dp))
+        TextField(value = content, onValueChange = { content = it }, label = { Text("Content") })
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(onClick = {
+            viewModel.addNote(Note(title = title, content = content, color = color))
+            navController.popBackStack()
+        }) {
+            Text("Save Note")
+        }
+    }
+}
+
+@Composable
+fun NotesApp(application: NotesApplication) {
+    val repository = NoteRepository(application.database.noteDao())
+    val viewModel: NoteViewModel = viewModel(factory = NoteViewModelFactory(repository))
+    val navController = rememberNavController()
+    
+    NavHost(navController, startDestination = "notes") {
+        composable("notes") { NotesScreen(viewModel, navController) }
+        composable("addNote") { AddNoteScreen(viewModel, navController) }
+    }
+}
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            NotesApp(application as NotesApplication)
+        }
+    }
+}
